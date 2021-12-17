@@ -12,6 +12,8 @@ import redis
 
 from ox_herd import settings as ox_settings
 
+from ox_herd.core import REDIS_URL
+
 
 def create(run_db=None):
     "Create and return RunDB reference based on run_db input."
@@ -220,7 +222,7 @@ class RedisRunDB(RunDB):
     """
 
     def __init__(self):
-        self.conn = redis.StrictRedis()
+        self.conn = redis.Redis.from_url(REDIS_URL)
         self.my_prefix = ox_settings.REDIS_PREFIX + ':__'
         self.id_counter = self.my_prefix + 'task_id_counter'
         self.task_master = self.my_prefix + 'task_master' + '::'

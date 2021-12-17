@@ -3,6 +3,8 @@
 
 import logging
 
+from ox_herd.core import REDIS_URL
+
 try: # try to import rq_scheduler and redis but allow other modes if fail
     import rq
     from rq.job import Job, UnpickleError
@@ -12,7 +14,7 @@ try: # try to import rq_scheduler and redis but allow other modes if fail
 except Exception as problem:
     logging.error('Could not import rq_scheduler and redis because %s.\n%s',
                   str(problem), 'Continue with non-rq options.')
-    
+
 
 class OxScheduler(object):
 
@@ -25,13 +27,13 @@ class OxScheduler(object):
     @staticmethod
     def schedule_via_instant(ox_herd_task):
         return ox_herd_task.func(ox_herd_task=ox_herd_task)
-        
+
     @staticmethod
     def schedule_via_rq(ox_herd_task):
-        rq_kw = dict([(name, getattr(ox_herd_task, name)) 
+        rq_kw = dict([(name, getattr(ox_herd_task, name))
                       for name in ox_herd_task.rq_fields])
         scheduler = rq_scheduler.Scheduler(
-            connection=Redis(), queue_name=rq_kw.pop('queue_name'))
+            connection=Redis.from_url(REDIS_URL), queue_name=rq_kw.pop('queue_name'))
         if rq_kw['cron_string']:
             return scheduler.cron(
                 rq_kw.pop('cron_string'), rq_kw.pop('func'),
@@ -41,12 +43,12 @@ class OxScheduler(object):
 
     @staticmethod
     def cancel_job(job):
-        scheduler = rq_scheduler.Scheduler(connection=Redis())
+        scheduler = rq_scheduler.Scheduler(connection=Redis.from_url(REDIS_URL))
         return scheduler.cancel(job)
 
     @staticmethod
     def cleanup_job(job_id):
-        conn = Redis()
+        conn = Redis.from_url(REDIS_URL)
         failed_queue = Queue("failed", connection=conn)
         failed_queue.remove(job_id)
         return 'Removed job %s' % str(job_id)
@@ -70,20 +72,20 @@ class OxScheduler(object):
     @staticmethod
     def launch_raw_task(raw_task):
         """Launch an OxHerdTask instance into python rq.
-        
+
         :arg raw_task:    OxHerdTask instance to run.
-        
+
         ~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-
-        
+
         :returns:  Newly launched job.
-        
+
         ~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-~-
-        
+
         PURPOSE:   Make it easy to launch an OxHerdTask into python rq
                    right now instead of waiting for cron or scheduler.
-        
+
         """
-        rq_kw = dict([(name, getattr(raw_task, name)) 
+        rq_kw = dict([(name, getattr(raw_task, name))
                       for name in raw_task.rq_fields])
         if 'cron_string' in rq_kw:
             rq_kw.pop('cron_string')  # launching now so get rid of cron_string
@@ -92,7 +94,7 @@ class OxScheduler(object):
             logging.info('Translating timeout to job_timeout in rq')
             rq_kw['job_timeout'] = rq_kw.pop('timeout')
         queue_name = rq_kw.pop('queue_name')
-        my_queue = rq.Queue(queue_name, connection=Redis())
+        my_queue = rq.Queue(queue_name, connection=Redis.from_url(REDIS_URL))
         my_func = rq_kw.pop('func')
         new_job = my_queue.enqueue(
             my_func, kwargs={'ox_herd_task' : raw_task}, **rq_kw)
@@ -101,11 +103,11 @@ class OxScheduler(object):
 
         return new_job
 
-        
+
 
     @staticmethod
     def find_job(target_job):
-        scheduler = rq_scheduler.Scheduler(connection=Redis())
+        scheduler = rq_scheduler.Scheduler(connection=Redis.from_url(REDIS_URL))
         job = Job.fetch(target_job, connection=scheduler.connection)
         if job:
             return job
@@ -121,7 +123,7 @@ class OxScheduler(object):
     @staticmethod
     def get_failed_jobs():
         results = []
-        conn = Redis()
+        conn = Redis.from_url(REDIS_URL)
         failed = Queue("failed", connection=conn)
         failed_jobs = failed.jobs
         for item in failed_jobs:
@@ -138,7 +140,7 @@ class OxScheduler(object):
     @staticmethod
     def get_scheduled_jobs():
         results = []
-        scheduler = rq_scheduler.Scheduler(connection=Redis())
+        scheduler = rq_scheduler.Scheduler(connection=Redis.from_url(REDIS_URL))
         jobs = scheduler.get_jobs()
         for item in jobs:
             try:
@@ -164,7 +166,7 @@ class OxScheduler(object):
 
     @staticmethod
     def get_queued_jobs(allowed_queues=None):
-        queue = Queue(connection=Redis())
+        queue = Queue(connection=Redis.from_url(REDIS_URL))
         all_jobs = queue.jobs
         if not allowed_queues:
             return all_jobs
